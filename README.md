@@ -1,53 +1,68 @@
 Kyrgyz AI learning assistant — Demo Prototype
 
 Purpose
-This repository contains a small Streamlit prototype that extracts a short summary from an uploaded PDF and generates an audio version of the summary using Google Text-to-Speech (gTTS). The goal is to provide a lightweight demo of document summarization and audio output in Kyrgyz or other languages supported by gTTS.
+This repository contains a small Streamlit prototype that extracts a short summary from an uploaded PDF and generates an audio version of the summary using Google Text-to-Speech (gTTS). The project has been updated to remove any external ChatGPT/OpenAI API calls and to run entirely locally using a simple extractive summarizer.
 
-What it uses
+Summary of recent code changes (what was changed and why)
 
-- Python 3.10+ (recommended environment: Conda)  
-- Streamlit — simple web UI for the demo  
-- pdfplumber — PDF text extraction  
-- gTTS — Google Text-to-Speech for audio generation  
-- python-dotenv — load environment variables from a .env file  
-- requests — small utility library (not strictly required, included for convenience)  
-- scipy — used for audio handling if needed
+- Local-only analysis
+  - The app now always calls the built-in `analyze(text, max_items=...)` function. This is an extractive, frequency-based summarizer and term extractor (same algorithm as before).
+  - Output structure returned by `analyze()` is a dict: {"overview": str, "definitions": {term: def}, "explanations": {term: explanation}}.
 
-How to run (local development)
+- Chat behavior (demo chat)
+  - The in-app chat remains in the UI but no longer forwards messages to any external service.
+  - The assistant responds with a constant demo message: "Бул демо-чат. Толук версияда модель документтин мазмунуна жараша жооп берет." (Kyrgyz). This is intentional and documented.
 
-1. Create and activate a python environment using conda or venv
-2. Install dependencies:
+- gTTS (audio) handling
+  - The top-level import of `gTTS` was removed. Instead the app performs a runtime import check when the user requests audio playback.
+  - If `gTTS` is not installed, the app shows a clear message explaining how to enable audio (install `gTTS`). This avoids import errors when the package is missing.
+  - Audio generation remains the same (short overview, language fallback to `ru` if `ky` unsupported).
+
+- UI and small fixes
+  - Minor indentation and chat message append fixes were applied so the constant assistant response is displayed correctly and persisted in session state.
+  - The streamlit toggle for "ChatGPT API" was removed and replaced by a single workflow that uses local analysis.
+
+What remains the same
+
+- The app still extracts text from the first five pages of an uploaded PDF using `pdfplumber`.
+- The summarization algorithm is the same frequency-based extractive summary used previously.
+- Flashcards and the UI for viewing definitions/explanations are unchanged in behavior (they use the output of the local `analyze()` function).
+
+Updated dependency guidance
+
+- The app no longer requires any OpenAI or ChatGPT-related packages or an API key.
+- Recommended Python dependencies for the current local-only version:
+  - streamlit
+  - pdfplumber
+  - gTTS (optional; only required if you want audio) - install with `pip install gTTS`
+
+Example minimal requirements.txt (update your environment accordingly)
+
+```
+streamlit
+pdfplumber
+gTTS
+```
+
+Running the app (local development)
+
+1. Create and activate a Python environment (recommended: Python 3.10+).
+2. Install dependencies (use the minimal list above or your existing environment):
+
 ```bash
 pip install -r requirements.txt
 ```
-3. (Optional) Create a `.env` file in the repository root to set environment variables. Example:
-```
-TTS_LANG=ky
-```
-4. Run the Streamlit app:
+
+3. Run the Streamlit app locally:
+
 ```bash
 streamlit run main.py
 ```
-How it works
-- Upload a PDF in the sidebar. The app extracts text from the first five pages.
-- Click "Generate Summary" to produce a short extractive summary using a simple frequency-based heuristic.
-- Click "Generate Audio Overview" to synthesize speech using gTTS. The audio is returned as an MP3 stream and played in the browser.
-
 Notes and limitations
 
-- This prototype is intentionally minimal. The summarization algorithm is extractive and not tuned for high-quality results. For production, connect an LLM or a proper summarization model.
-- gTTS uses Google TTS and requires an internet connection. It is used here as a simple, free TTS option.
-- The app should be run in a Python environment that has the listed dependencies installed. Use the provided `requirements.txt` file.
-
-Tech stack
-
-- Streamlit: lightweight web UI framework for Python, used to build the app and serve it locally.  
-- pdfplumber: extract text from PDF files.  
-- gTTS: Google Text-to-Speech Python wrapper to synthesize audio from text.  
-- python-dotenv: simple loader for environment variables from a `.env` file.  
-- SciPy: used for potential audio handling (included in requirements for completeness). 
+This prototype is intentionally minimal. The summarization algorithm is extractive and not tuned for high-quality results. For production, connect an LLM or a proper summarization model.
+gTTS uses Google TTS and requires an internet connection. It is used here as a simple, free TTS option. 
+The app should be run in a Python environment that has the listed dependencies installed. Use the provided requirements.txt file.
 
 License
-
 This repository is a demo prototype and does not include any licensing beyond the included dependencies' licenses.
-
