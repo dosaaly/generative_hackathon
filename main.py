@@ -2,7 +2,8 @@ import streamlit as st  # type: ignore
 import pdfplumber  # type: ignore
 import re
 from collections import Counter
-import math
+import os
+import io
 
 st.set_page_config(page_title="OkuLM", layout="wide")
 st.title("OkuLM — Окуу талдоосу")
@@ -10,7 +11,7 @@ st.title("OkuLM — Окуу талдоосу")
 K_STOP = {
     'мен', 'сен', 'ал', 'болуп', 'бар', 'жана', 'менин', 'сенин', 'алар', 'үшүн', 'үчүн',
     'же', 'бул', 'бир', 'эмес', 'да', 'аны', 'мене', 'өз', 'көп', 'аз', 'сөз', 'айт', 'бол',
-    'эми', 'кайсы', 'канча', 'кайда', 'кантип', 'анан', 'анын', 'бардык'
+    'эми', 'кайсы', 'канча', 'кайда', 'кантип', 'анан', '��нын', 'бардык'
 }
 
 SENT_RE = re.compile(r'(?<=[.!?\n])\s+')
@@ -113,10 +114,9 @@ def analyze(text, max_items=5):
         if d:
             exps[t] = summarize(d + ' ' + ' '.join(sents[max(0, 0):min(len(sents), 3)]), max_chars=500)
         else:
-            # fallback: use the sentence context
             ctx = ''
             for i, s in enumerate(sents):
-                if re.search(r'\b' + re.escape(t) + r'\b', s, re.IGNORECASE):
+                if re.search(r'\\b' + re.escape(t) + r'\\b', s, re.IGNORECASE):
                     start = max(0, i - 1)
                     ctx = ' '.join(sents[start:min(len(sents), i + 2)])
                     break
@@ -145,28 +145,139 @@ if 'doc_text' in st.session_state:
         st.write(f"Алынган узундук: {len(st.session_state['doc_text'])} символ")
 
     st.subheader("Окуу талдоосу")
-    max_items = st.slider("Эң көп элементтер", 1, 20, 5)
-    if st.button("Окуу талдоосун түзүү"):
-        res = analyze(st.session_state['doc_text'], max_items=max_items)
-        if 'error' in res:
-            st.error("Документтеги текст бош. PDFти текшерип кайра жүктөңүз.")
+    left, right = st.columns([3, 1])
+    with right:
+        max_items = st.number_input("Көрсөтө турган терминдер", min_value=1, max_value=20, value=5, step=1)
+        run_analysis = st.button("Окуу талдоосун түзүү")
+
+    if run_analysis:
+        st.session_state['run_analysis'] = True
+        with st.spinner('Талдоо жүргүзүлүүдө...'):
+            res = analyze(st.session_state['doc_text'], max_items=max_items)
+            st.session_state['analysis_result'] = res
+
+    if 'analysis_result' in st.session_state:
+        res = st.session_state['analysis_result']
+        if not isinstance(res, dict) or 'error' in res:
+            msg = res.get('message', 'Белгисиз ката') if isinstance(res, dict) else 'Натыйжа туура эмес форматта'
+            st.error(f"Талдоодон ката кетти: {msg}")
         else:
             st.markdown("### Кыскача")
-            st.write(res['overview'])
+            overview_text = res.get('overview', '')
+            st.write(overview_text)
+
             st.markdown("### Маанилүү терминдер")
-            if res['definitions']:
-                for term, d in res['definitions'].items():
-                    exp = res['explanations'].get(term, '')
+            definitions = res.get('definitions', {}) or {}
+            explanations = res.get('explanations', {}) or {}
+            if definitions:
+                for term, d in definitions.items():
+                    exp = explanations.get(term, '')
                     with st.expander(f"{term}"):
-                        if exp:
-                            st.write('**Түшүндүрмө:**')
-                            st.write(exp)
-                        if d:
-                            st.write('**Аныктама:**')
-                            st.write(d)
-                        if not d and not exp:
-                            st.write('Бул термин үчүн кошумча маалымат табылган жок.')
+                        if exp: st.write(f"**Түшүндүрмө:**\n{exp}")
+                        if d: st.write(f"**Аныктама:**\n{d}")
+                        if not d and not exp: st.write('Бул термин үчүн кошумча маалымат табылган жок.')
             else:
                 st.write('Маанилүү терминдер табылган жок.')
+
+            if overview_text:
+                st.markdown("### Аудио обзор")
+                if st.button("Аудиону ойнотуу"):
+                    with st.spinner("Аудио түзүү..."):
+                        try:
+                            import importlib
+                            spec = importlib.util.find_spec('gtts')
+                            if spec is None:
+                                st.error("gTTS (text-to-speech) library not installed; install 'gTTS' to enable audio.")
+                            else:
+                                gtts = importlib.import_module('gtts')
+                                gTTS = getattr(gtts, 'gTTS')
+                                lang = os.getenv('TTS_LANG', 'ru')
+                                text_for_audio = " ".join(overview_text.split()[:25])
+                                tts = gTTS(text=text_for_audio, lang=lang)
+                                audio_fp = io.BytesIO()
+                                tts.write_to_fp(audio_fp)
+                                audio_fp.seek(0)
+                                st.audio(audio_fp, format='audio/mp3')
+                        except Exception as e:
+                            st.error(f"Аудио түзүүдө ката кетти: {e}")
+
+            st.markdown("---")
+            st.markdown("### 🃏 Флеш-карталар")
+
+            if 'flashcards' not in st.session_state:
+                st.session_state.flashcards = []
+
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if st.button("Флеш-карталарды түзүү"):
+                    if definitions:
+                        st.session_state.flashcards = list(definitions.items())
+                        st.session_state.card_index = 0
+                        st.session_state.card_revealed = False
+                        st.rerun()
+                    else:
+                        st.warning("Флеш-карталар үчүн терминдер табылган жок.")
+
+            if st.session_state.flashcards:
+                total_cards = len(st.session_state.flashcards)
+                if 'card_index' not in st.session_state:
+                    st.session_state.card_index = 0
+
+                st.session_state.card_index %= total_cards
+                term, definition = st.session_state.flashcards[st.session_state.card_index]
+
+                nav_col1, nav_col2, nav_col3 = st.columns([1, 1, 1])
+                with nav_col1:
+                    if st.button("◀️ Артка"):
+                        st.session_state.card_index -= 1
+                        st.session_state.card_revealed = False
+                        st.rerun()
+                with nav_col3:
+                    if st.button("алдыга ▶️"):
+                        st.session_state.card_index += 1
+                        st.session_state.card_revealed = False
+                        st.rerun()
+
+                with st.container():
+                    st.markdown(f"""
+                    <div style="border: 1px solid #333; border-radius: 10px; padding: 25px; text-align: center; min-height: 200px; cursor: pointer;" onclick="this.querySelector('button').click();">
+                        <h4>{term}</h4>
+                    """, unsafe_allow_html=True)
+
+                    if st.session_state.get('card_revealed', False):
+                        st.write(definition or "Аныктама табылган жок.")
+                        if st.button("Жабуу", key=f"hide_{st.session_state.card_index}"):
+                            st.session_state.card_revealed = False
+                            st.rerun()
+                    else:
+                        if st.button("Ачуу", key=f"reveal_{st.session_state.card_index}", help="Click to reveal definition"):
+                            st.session_state.card_revealed = True
+                            st.rerun()
+
+                    st.caption(f"Карта {st.session_state.card_index + 1}/{total_cards}")
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.subheader("💬 Чат")
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("Документ боюнча сурооңузду бериңиз"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            full_response = "Бул демо-чат. Толук версияда модель документтин мазмунуна жараша жооп берет."
+
+            message_placeholder.markdown(full_response)
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
+
 else:
     st.info("Баштоо үчүн сол жактан PDF жүктөңүз.")
